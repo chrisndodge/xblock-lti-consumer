@@ -60,6 +60,7 @@ from collections import namedtuple
 from webob import Response
 
 from django.utils import timezone
+from django.conf import settings
 
 from xblock.core import String, Scope, List, XBlock
 from xblock.fields import Boolean, Float, Integer
@@ -473,16 +474,33 @@ class LtiConsumerXBlock(StudioEditableXBlockMixin, XBlock):
         """
         Obtains client_key and client_secret credentials from current course.
         """
-        for lti_passport in self.course.lti_passports:
-            try:
-                lti_id, key, secret = [i.strip() for i in lti_passport.split(':')]
-            except ValueError:
-                msg = self.ugettext('Could not parse LTI passport: {lti_passport}. Should be "id:key:secret" string.').\
-                    format(lti_passport='{0!r}'.format(lti_passport))
-                raise LtiError(msg)
 
-            if lti_id == self.lti_id.strip():
-                return key, secret
+        # first look in the course settings
+        key, secret = self._lti_provider_key_secret(self.course.lti_passports)
+
+        # if not found then look in runtime configuration which is managed by
+        # the secure configuration repository
+        if not key and not secret:
+            key, secret = self._lti_provider_key_secret(getattr(settings, 'LTI_PASSPORTS', []))
+
+        return key, secret
+
+    def _lti_provider_key_secret(self, lti_passports):
+        """
+        Helper method to find the corresponding LTI key/secret from the passports array
+        """
+
+        if lti_passports:
+            for lti_passport in lti_passports:
+                try:
+                    lti_id, key, secret = [i.strip() for i in lti_passport.split(':')]
+                except ValueError:
+                    msg = self.ugettext('Could not parse LTI passport: {lti_passport}. Should be "id:key:secret" string.').\
+                        format(lti_passport='{0!r}'.format(lti_passport))
+                    raise LtiError(msg)
+
+                if lti_id == self.lti_id.strip():
+                    return key, secret
 
         return '', ''
 
